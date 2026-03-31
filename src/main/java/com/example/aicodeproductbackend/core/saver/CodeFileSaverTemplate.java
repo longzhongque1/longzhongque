@@ -2,6 +2,7 @@ package com.example.aicodeproductbackend.core.saver;
 
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
+import com.example.aicodeproductbackend.contant.AppConstant;
 import com.example.aicodeproductbackend.exception.BusinessException;
 import com.example.aicodeproductbackend.exception.ErrorCode;
 import com.example.aicodeproductbackend.model.enums.CodeGenTypeEnum;
@@ -11,7 +12,7 @@ import java.nio.charset.StandardCharsets;
 
 public abstract  class CodeFileSaverTemplate<T> {
     //定义文件保存根目录
-     protected static final String FILE_SAVE_ROOT_DIR= System.getProperty("user.dir") + "/temp/code_output";
+     protected static final String FILE_SAVE_ROOT_DIR= AppConstant.CODE_OUTPUT_ROOT_DIR;
      public final File save(T result,Long appId){
          //1.验证输入
          validateInput(result);
