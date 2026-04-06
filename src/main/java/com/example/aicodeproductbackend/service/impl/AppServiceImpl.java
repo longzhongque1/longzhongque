@@ -11,18 +11,20 @@ import com.example.aicodeproductbackend.exception.BusinessException;
 import com.example.aicodeproductbackend.exception.ErrorCode;
 import com.example.aicodeproductbackend.exception.ThrowUtils;
 import com.example.aicodeproductbackend.model.dto.app.AppQueryRequest;
+import com.example.aicodeproductbackend.model.entity.App;
 import com.example.aicodeproductbackend.model.entity.User;
 import com.example.aicodeproductbackend.model.enums.CodeGenTypeEnum;
 import com.example.aicodeproductbackend.model.vo.AppVO;
 import com.example.aicodeproductbackend.model.vo.UserVO;
+import com.example.aicodeproductbackend.service.ChatHistoryService;
 import com.example.aicodeproductbackend.service.UserService;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
-import com.example.aicodeproductbackend.model.entity.App;
 import com.example.aicodeproductbackend.mapper.AppMapper;
 import com.example.aicodeproductbackend.service.AppService;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 
 import java.io.File;
@@ -44,6 +46,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     private UserService userService;
     @Resource
     private AiCodeGeneratorFacade aiCodeGeneratorFacade;
+    @Resource
+    private ChatHistoryService chatHistoryService;
 
     @Override
     public Flux<String> chatToGenCode(Long appId, String message, User loginUser){
@@ -59,7 +63,30 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR,"不支持的代码生成类型");
         }
-        return aiCodeGeneratorFacade.generateAndSaveCodeStream(message,codeGenTypeEnum,appId);
+        //添加用户消息到对话历史
+        chatHistoryService.saveUserMessage(appId, loginUser.getId(), message);
+        StringBuilder aiReplyBuilder = new StringBuilder();
+        return aiCodeGeneratorFacade.generateAndSaveCodeStream(message,codeGenTypeEnum,appId)
+                .map(chunk->{
+                    //收集ai响应信息
+                    aiReplyBuilder.append(chunk);
+                    return chunk;})
+                .doOnComplete(() -> {
+                    String aiReply = StrUtil.blankToDefault(aiReplyBuilder.toString(), "AI 未返回有效内容");
+                    //添加ai消息到对话历史
+                    chatHistoryService.saveAiMessage(appId, loginUser.getId(), aiReply);
+                })
+                .doOnError(error -> chatHistoryService.saveAiErrorMessage(appId, loginUser.getId(), error.getMessage()));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean removeById(java.io.Serializable id) {
+        if (!(id instanceof Long appId)) {
+            return false;
+        }
+        chatHistoryService.removeByAppId(appId);
+        return super.removeById(id);
     }
 
     @Override

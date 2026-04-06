@@ -48,10 +48,9 @@
 </template>
 
 <script setup lang="ts">
-import { h, ref ,computed} from 'vue'
-import { useRouter } from 'vue-router'
+import { h, ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import type { MenuProps } from 'ant-design-vue'
-// JS 中引入 Store
 import { useLoginUserStore } from '@/stores/loginUser.ts'
 import { LogoutOutlined } from '@ant-design/icons-vue'
 import { userLogout } from '@/api/userController.ts'
@@ -59,6 +58,7 @@ import { message } from 'ant-design-vue'
 
 const loginUserStore = useLoginUserStore()
 const router = useRouter()
+const route = useRoute()
 
 // 用户注销
 const doLogout = async () => {
@@ -74,17 +74,21 @@ const doLogout = async () => {
   }
 }
 
-// 当前选中菜单
 const selectedKeys = ref<string[]>(['/'])
-// 监听路由变化，更新当前选中菜单
-router.afterEach((to, from, next) => {
-  selectedKeys.value = [to.path]
-})
-// 处理菜单点击
+const menuPathSet = new Set(['/', '/admin/userManage', '/admin/appManage', '/admin/chatHistoryManage'])
+watch(
+  () => route.path,
+  (path) => {
+    selectedKeys.value = [menuPathSet.has(path) ? path : '/']
+  },
+  {
+    immediate: true,
+  },
+)
+
 const handleMenuClick: MenuProps['onClick'] = (e) => {
   const key = e.key as string
   selectedKeys.value = [key]
-  // 跳转到对应页面
   if (key.startsWith('/')) {
     router.push(key)
   }
@@ -103,9 +107,19 @@ const originItems = [
     title: '用户管理',
   },
   {
+    key: '/admin/appManage',
+    label: '应用管理',
+    title: '应用管理',
+  },
+  {
+    key: '/admin/chatHistoryManage',
+    label: '对话管理',
+    title: '对话管理',
+  },
+  {
     key: 'others',
-    label: h('a', { href: 'https://www.codefather.cn', target: '_blank' }, '编程导航'),
-    title: '编程导航',
+    label: h('a', { href: 'https://baike.baidu.com/item/%E8%94%A1%E5%BE%90%E5%9D%A4/8511458', target: '_blank' }, '哥哥'),
+    title: '哥哥',
   },
 ]
 

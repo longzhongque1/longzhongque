@@ -3,6 +3,7 @@ package com.example.aicodeproductbackend.core;
 import com.example.aicodeproductbackend.ai.AiCodeGeneratorService;
 import com.example.aicodeproductbackend.ai.model.HtmlCodeResult;
 import com.example.aicodeproductbackend.ai.model.MultiFileCodeResult;
+import com.example.aicodeproductbackend.config.AiCodeGeneratorServiceFactory;
 import com.example.aicodeproductbackend.core.parser.CodeParserExecutor;
 import com.example.aicodeproductbackend.core.saver.CodeFileSaverExecutor;
 import com.example.aicodeproductbackend.exception.BusinessException;
@@ -23,8 +24,7 @@ import java.io.File;
 public class AiCodeGeneratorFacade {
 
     @Resource
-    private AiCodeGeneratorService aiCodeGeneratorService;
-
+    private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
     /**
      * 统一入口：根据类型生成并保存代码
      *
@@ -36,6 +36,7 @@ public class AiCodeGeneratorFacade {
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
         }
+        AiCodeGeneratorService aiCodeGeneratorService=aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId);
         return switch (codeGenTypeEnum) {
             case HTML ->{
                 HtmlCodeResult htmlCodeResult = aiCodeGeneratorService.generateHtmlCode(userMessage);
@@ -60,9 +61,11 @@ public class AiCodeGeneratorFacade {
      * @return 保存的目录
      */
     public Flux<String> generateAndSaveCodeStream(String userMessage, CodeGenTypeEnum codeGenTypeEnum,Long appId) {
+
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
         }
+        AiCodeGeneratorService aiCodeGeneratorService=aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId);
         return switch (codeGenTypeEnum) {
             case HTML -> {
                 Flux<String> htmlCodeStream = aiCodeGeneratorService.generateHtmlCodeStream(userMessage);
@@ -85,7 +88,8 @@ public class AiCodeGeneratorFacade {
      * @param userMessage 用户提示词
      * @return 保存的目录
      */
-    private File generateAndSaveHtmlCode(String userMessage) {
+    private File generateAndSaveHtmlCode(String userMessage,Long appId) {
+        AiCodeGeneratorService aiCodeGeneratorService=aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId);
         HtmlCodeResult result = aiCodeGeneratorService.generateHtmlCode(userMessage);
         return CodeFileSaver.saveHtmlCodeResult(result);
     }
@@ -96,7 +100,8 @@ public class AiCodeGeneratorFacade {
      * @param userMessage 用户提示词
      * @return 保存的目录
      */
-    private File generateAndSaveMultiFileCode(String userMessage) {
+    private File generateAndSaveMultiFileCode(String userMessage,Long appId) {
+        AiCodeGeneratorService aiCodeGeneratorService=aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId);
         MultiFileCodeResult result = aiCodeGeneratorService.generateMultiFileCode(userMessage);
         return CodeFileSaver.saveMultipleFileCodeResult(result);
     }
@@ -106,7 +111,8 @@ public class AiCodeGeneratorFacade {
      * @param userMessage
      * @return
      */
-    private Flux<String> generateAndSaveHtmlCodeStream(String userMessage) {
+    private Flux<String> generateAndSaveHtmlCodeStream(String userMessage,Long appId) {
+        AiCodeGeneratorService aiCodeGeneratorService=aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId);
         //获取流式返回结果
         Flux<String> htmlCodeStream = aiCodeGeneratorService.generateHtmlCodeStream(userMessage);
         StringBuilder stringBuilder = new StringBuilder();
@@ -132,7 +138,8 @@ public class AiCodeGeneratorFacade {
      * @param userMessage
      * @return
      */
-    private Flux<String> generateAndSaveMultiFileCodeStream(String userMessage) {
+    private Flux<String> generateAndSaveMultiFileCodeStream(String userMessage,Long appId) {
+        AiCodeGeneratorService aiCodeGeneratorService=aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId);
         //获取流式返回结果
         Flux<String> multiFileCodeStream = aiCodeGeneratorService.generateMultiFileCodeStream(userMessage);
         StringBuilder stringBuilder = new StringBuilder();
