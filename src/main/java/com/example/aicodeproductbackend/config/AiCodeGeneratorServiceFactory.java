@@ -41,6 +41,7 @@ public class AiCodeGeneratorServiceFactory {
             })
             .build();
     public AiCodeGeneratorService getAiCodeGeneratorService(Long appId) {
+        //有就从缓存取，没有就加载应用实例到缓存
         return caffeineBuilder.get(appId, this::createAiCodeGeneratorService);
     }
     public AiCodeGeneratorService createAiCodeGeneratorService(Long appId) {

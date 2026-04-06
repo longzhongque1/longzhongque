@@ -66,8 +66,8 @@ public class AppController {
         // 获取当前登录用户
         User loginUser = userService.getLoginUser(request);
         // 调用服务生成代码（流式）
-        Flux<String> chatToGenCodeFulx = appService.chatToGenCode(appId, message, loginUser);
-        return chatToGenCodeFulx.map(chunk->{
+        Flux<String> chatToGenCodeFlux = appService.chatToGenCode(appId, message, loginUser);
+        return chatToGenCodeFlux.map(chunk->{
             Map<String, String> chunkMap = Map.of("d",chunk);
             String jsonStr = JSONUtil.toJsonStr(chunkMap);
             return ServerSentEvent.<String>builder().data(jsonStr).build();

@@ -21,6 +21,7 @@ public class RedisChatMemoryStoreConfig {
         return RedisChatMemoryStore.builder()
                 .host(host)
                 .port(port)
+                .ttl(3600L)
                 .build();
     }
 }
