@@ -1,14 +1,20 @@
 package com.example.aicodeproductbackend.core;
 
+import cn.hutool.json.JSONUtil;
 import com.example.aicodeproductbackend.ai.AiCodeGeneratorService;
 import com.example.aicodeproductbackend.ai.model.HtmlCodeResult;
 import com.example.aicodeproductbackend.ai.model.MultiFileCodeResult;
+import com.example.aicodeproductbackend.ai.model.message.AiResponseMessage;
+import com.example.aicodeproductbackend.ai.model.message.ToolExecutedMessage;
+import com.example.aicodeproductbackend.ai.model.message.ToolRequestMessage;
 import com.example.aicodeproductbackend.config.AiCodeGeneratorServiceFactory;
 import com.example.aicodeproductbackend.core.parser.CodeParserExecutor;
 import com.example.aicodeproductbackend.core.saver.CodeFileSaverExecutor;
 import com.example.aicodeproductbackend.exception.BusinessException;
 import com.example.aicodeproductbackend.exception.ErrorCode;
 import com.example.aicodeproductbackend.model.enums.CodeGenTypeEnum;
+import dev.langchain4j.service.TokenStream;
+import dev.langchain4j.service.tool.ToolExecution;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -65,7 +71,7 @@ public class AiCodeGeneratorFacade {
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
         }
-        AiCodeGeneratorService aiCodeGeneratorService=aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId);
+        AiCodeGeneratorService aiCodeGeneratorService=aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId,codeGenTypeEnum);
         return switch (codeGenTypeEnum) {
             case HTML -> {
                 Flux<String> htmlCodeStream = aiCodeGeneratorService.generateHtmlCodeStream(userMessage);
@@ -74,6 +80,10 @@ public class AiCodeGeneratorFacade {
             case MULTI_FILE -> {
                 Flux<String> multiFileCodeStream = aiCodeGeneratorService.generateMultiFileCodeStream(userMessage);
                 yield processStream(multiFileCodeStream, codeGenTypeEnum,appId);
+            }
+            case VUE_PROJECT -> {
+                TokenStream vueProjectTokenStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId,userMessage);
+                yield processTokenStream(vueProjectTokenStream);
             }
             default -> {
                 String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();
@@ -183,5 +193,32 @@ public class AiCodeGeneratorFacade {
                         log.error("保存失败，错误信息为： {}", e.getMessage());
                     }
                 });
+    }
+
+    /**
+     * 流式响应保存文件统一入口
+     * @param tokenStream
+     * @return 提供转换流式对象响应
+     */
+    private Flux<String> processTokenStream(TokenStream tokenStream) {
+        return Flux.create(sink -> {
+            tokenStream.onPartialResponse((String partialResponse )-> {
+                AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
+                sink.next(JSONUtil.toJsonStr(aiResponseMessage));
+            }).onPartialToolExecutionRequest((index,toolExecutionRequest) -> {
+                ToolRequestMessage toolRequestMessage = new ToolRequestMessage(toolExecutionRequest);
+                sink.next(JSONUtil.toJsonStr(toolRequestMessage));
+            }).onToolExecuted((ToolExecution toolExecution)->{
+                ToolExecutedMessage toolExecutedMessage = new ToolExecutedMessage(toolExecution);
+                sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
+            }).onCompleteResponse((chatResponse -> {
+
+                sink.complete();
+            })).onError(throwable -> {
+                throwable.printStackTrace();
+                sink.error(throwable);
+            }).start();
+
+        });
     }
 }

@@ -90,6 +90,11 @@ const previewStaticKey = computed(() => {
   return `${appInfo.value.codeGenType || 'html'}_${appInfo.value.id}`
 })
 
+const previewSubPath = computed(() => {
+  const codeGenType = String(appInfo.value?.codeGenType || '').toLowerCase()
+  return codeGenType === 'vue_project' ? 'dist/index.html' : ''
+})
+
 const showPreview = computed(() => {
   if (!previewUrl.value) return false
   return generatedDone.value || historyTotal.value >= 2
@@ -226,7 +231,7 @@ const refreshPreviewUrl = () => {
     return
   }
   const bust = iframeCacheBuster.value ? `?t=${iframeCacheBuster.value}` : ''
-  previewUrl.value = `${BASE_URL}/static/${staticKey}/${bust}`
+  previewUrl.value = `${BASE_URL}/static/${staticKey}/${previewSubPath.value}${bust}`
 }
 
 const loadChatHistory = async (loadMore = false) => {

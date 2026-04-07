@@ -7,6 +7,9 @@ import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import com.example.aicodeproductbackend.contant.AppConstant;
 import com.example.aicodeproductbackend.core.AiCodeGeneratorFacade;
+import com.example.aicodeproductbackend.core.builder.VueProjectBuilder;
+import com.example.aicodeproductbackend.core.handler.SimpleTextStreamHandler;
+import com.example.aicodeproductbackend.core.handler.StreamHandlerExecutor;
 import com.example.aicodeproductbackend.exception.BusinessException;
 import com.example.aicodeproductbackend.exception.ErrorCode;
 import com.example.aicodeproductbackend.exception.ThrowUtils;
@@ -48,6 +51,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     private AiCodeGeneratorFacade aiCodeGeneratorFacade;
     @Resource
     private ChatHistoryService chatHistoryService;
+    @Resource
+    private StreamHandlerExecutor streamHandlerExecutor;
+    @Resource
+    private VueProjectBuilder vueProjectBuilder;
 
     @Override
     public Flux<String> chatToGenCode(Long appId, String message, User loginUser){
@@ -65,18 +72,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         }
         //添加用户消息到对话历史
         chatHistoryService.saveUserMessage(appId, loginUser.getId(), message);
-        StringBuilder aiReplyBuilder = new StringBuilder();
-        return aiCodeGeneratorFacade.generateAndSaveCodeStream(message,codeGenTypeEnum,appId)
-                .map(chunk->{
-                    //收集ai响应信息
-                    aiReplyBuilder.append(chunk);
-                    return chunk;})
-                .doOnComplete(() -> {
-                    String aiReply = StrUtil.blankToDefault(aiReplyBuilder.toString(), "AI 未返回有效内容");
-                    //添加ai消息到对话历史
-                    chatHistoryService.saveAiMessage(appId, loginUser.getId(), aiReply);
-                })
-                .doOnError(error -> chatHistoryService.saveAiErrorMessage(appId, loginUser.getId(), error.getMessage()));
+        //调用 AI 生成代码（流式）
+        Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenTypeEnum, appId);
+        //收集 AI 响应内容并在完成后记录到对话历史
+        return streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, codeGenTypeEnum);
     }
 
     @Override
@@ -114,7 +113,17 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
             if (!file.exists()||!file.isDirectory()) {
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR,"源码目录不存在");
             }
-            //7.复制源目录到部署目录
+        CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(codeGenType);
+            if (CodeGenTypeEnum.VUE_PROJECT.equals(codeGenTypeEnum)){
+            boolean buildResult = vueProjectBuilder.buildProject(sourceDirPath);
+            ThrowUtils.throwIf(!buildResult, ErrorCode.SYSTEM_ERROR, "构建vue项目失败");
+            //检查dist目录
+                File dist = new File(sourceDirPath, "dist");
+                ThrowUtils.throwIf(!dist.exists()||!dist.isDirectory(), ErrorCode.SYSTEM_ERROR, "dist目录不存在");
+                //将dist目录作为部署源地址
+                file=dist;
+            }
+        //7.复制源目录到部署目录
             String deployDirPath = AppConstant.CODE_DEPLOY_ROOT_DIR + File.separator + deployKey;
             try {
                 FileUtil.copyContent(file, new File(deployDirPath), true);
