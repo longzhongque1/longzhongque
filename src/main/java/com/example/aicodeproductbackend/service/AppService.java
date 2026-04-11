@@ -1,5 +1,6 @@
 package com.example.aicodeproductbackend.service;
 
+import com.example.aicodeproductbackend.model.dto.app.AppAddRequest;
 import com.example.aicodeproductbackend.model.dto.app.AppQueryRequest;
 import com.example.aicodeproductbackend.model.entity.User;
 import com.example.aicodeproductbackend.model.vo.AppVO;
@@ -19,7 +20,11 @@ public interface AppService extends IService<App> {
 
     Flux<String> chatToGenCode(Long appId, String message, User loginUser);
 
+    Long createApp(AppAddRequest appAddRequest, User loginUser);
+
     String  deployApp(Long appId, User loginUser);
+
+    void generateAppScreenshotAsync(Long appId, String appUrl);
 
     AppVO getAppVO(App app);
 

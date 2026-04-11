@@ -5,14 +5,15 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
+import com.example.aicodeproductbackend.ai.AiCodeGenTypeRoutingService;
 import com.example.aicodeproductbackend.contant.AppConstant;
 import com.example.aicodeproductbackend.core.AiCodeGeneratorFacade;
 import com.example.aicodeproductbackend.core.builder.VueProjectBuilder;
-import com.example.aicodeproductbackend.core.handler.SimpleTextStreamHandler;
 import com.example.aicodeproductbackend.core.handler.StreamHandlerExecutor;
 import com.example.aicodeproductbackend.exception.BusinessException;
 import com.example.aicodeproductbackend.exception.ErrorCode;
 import com.example.aicodeproductbackend.exception.ThrowUtils;
+import com.example.aicodeproductbackend.model.dto.app.AppAddRequest;
 import com.example.aicodeproductbackend.model.dto.app.AppQueryRequest;
 import com.example.aicodeproductbackend.model.entity.App;
 import com.example.aicodeproductbackend.model.entity.User;
@@ -20,12 +21,14 @@ import com.example.aicodeproductbackend.model.enums.CodeGenTypeEnum;
 import com.example.aicodeproductbackend.model.vo.AppVO;
 import com.example.aicodeproductbackend.model.vo.UserVO;
 import com.example.aicodeproductbackend.service.ChatHistoryService;
+import com.example.aicodeproductbackend.service.ScreenshotService;
 import com.example.aicodeproductbackend.service.UserService;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.example.aicodeproductbackend.mapper.AppMapper;
 import com.example.aicodeproductbackend.service.AppService;
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
@@ -37,13 +40,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-
 /**
  * 应用 服务层实现。
  *
  * @author Fairytail
  */
 @Service
+@Slf4j
 public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppService{
     @Resource
     private UserService userService;
@@ -55,6 +58,10 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     private StreamHandlerExecutor streamHandlerExecutor;
     @Resource
     private VueProjectBuilder vueProjectBuilder;
+    @Resource
+    private ScreenshotService screenshotService;
+    @Resource
+    private AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService;
 
     @Override
     public Flux<String> chatToGenCode(Long appId, String message, User loginUser){
@@ -87,6 +94,29 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         chatHistoryService.removeByAppId(appId);
         return super.removeById(id);
     }
+
+
+    @Override
+    public Long createApp(AppAddRequest appAddRequest, User loginUser) {
+        // 参数校验
+        String initPrompt = appAddRequest.getInitPrompt();
+        ThrowUtils.throwIf(StrUtil.isBlank(initPrompt), ErrorCode.PARAMS_ERROR, "初始化 prompt 不能为空");
+        // 构造入库对象
+        App app = new App();
+        BeanUtil.copyProperties(appAddRequest, app);
+        app.setUserId(loginUser.getId());
+        // 应用名称暂时为 initPrompt 前 12 位
+        app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
+        // 使用 AI 智能选择代码生成类型
+        CodeGenTypeEnum selectedCodeGenType = aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt);
+        app.setCodeGenType(selectedCodeGenType.getValue());
+        // 插入数据库
+        boolean result = this.save(app);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        log.info("应用创建成功，ID: {}, 类型: {}", app.getId(), selectedCodeGenType.getValue());
+        return app.getId();
+    }
+
 
     @Override
     public String  deployApp(Long appId, User loginUser) {
@@ -140,10 +170,33 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
             if (!updateResult) {
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR,"更新应用信息失败");
             }
-            //9.返回url
-            return String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, deployKey);
-
+        // 9. 构建应用访问 URL
+        String appDeployUrl = String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, deployKey);
+        // 10. 异步生成截图并更新应用封面
+        generateAppScreenshotAsync(appId, appDeployUrl);
+        return appDeployUrl;
     }
+    /**
+     * 异步生成应用截图并更新封面
+     *
+     * @param appId  应用ID
+     * @param appUrl 应用访问URL
+     */
+    @Override
+    public void generateAppScreenshotAsync(Long appId, String appUrl) {
+        // 使用虚拟线程异步执行
+        Thread.startVirtualThread(() -> {
+            // 调用截图服务生成截图并上传
+            String screenshotUrl = screenshotService.generateAndUploadScreenshot(appUrl);
+            // 更新应用封面字段
+            App updateApp = new App();
+            updateApp.setId(appId);
+            updateApp.setCover(screenshotUrl);
+            boolean updated = this.updateById(updateApp);
+            ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "更新应用封面字段失败");
+        });
+    }
+
 
     @Override
     public AppVO getAppVO(App app) {

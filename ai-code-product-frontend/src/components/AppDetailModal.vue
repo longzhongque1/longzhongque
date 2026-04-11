@@ -27,6 +27,23 @@ const canManage = computed(() => {
   return ownerId === loginId || role === 'admin'
 })
 
+const codeGenTypeText = computed(() => {
+  const type = String(props.app?.codeGenType || '').toLowerCase()
+  if (!type) {
+    return '未知类型'
+  }
+  if (type === 'vue_project') {
+    return 'Vue项目'
+  }
+  if (type === 'html') {
+    return '原生html'
+  }
+  if (type === 'multi_file') {
+    return '原生多文件'
+  }
+  return String(props.app?.codeGenType)
+})
+
 const goToEdit = () => {
   if (!props.app?.id) return
   router.push(`/app/edit/${props.app.id}`)
@@ -66,6 +83,12 @@ const doDelete = async () => {
       <div class="detail-item">
         <span class="detail-label">创建时间：</span>
         <span class="detail-value">{{ app?.createTime ? dayjs(app.createTime).format('YYYY-MM-DD HH:mm:ss') : '-' }}</span>
+      </div>
+      <div class="detail-item">
+        <span class="detail-label">生成类型：</span>
+        <span class="detail-value">
+          <a-tag color="blue">{{ codeGenTypeText }}</a-tag>
+        </span>
       </div>
     </div>
     <div v-if="canManage" class="detail-section">

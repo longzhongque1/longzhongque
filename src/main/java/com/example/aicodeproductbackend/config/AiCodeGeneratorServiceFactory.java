@@ -1,7 +1,7 @@
 package com.example.aicodeproductbackend.config;
 
 import com.example.aicodeproductbackend.ai.AiCodeGeneratorService;
-import com.example.aicodeproductbackend.ai.tools.FileWriteTool;
+import com.example.aicodeproductbackend.ai.tools.*;
 import com.example.aicodeproductbackend.exception.BusinessException;
 import com.example.aicodeproductbackend.exception.ErrorCode;
 import com.example.aicodeproductbackend.model.enums.CodeGenTypeEnum;
@@ -34,6 +34,8 @@ public class AiCodeGeneratorServiceFactory {
     private RedisChatMemoryStore redisChatMemoryStore;
     @Resource
     private ChatHistoryService chatHistoryService;
+    @Resource
+    private ToolManager toolManager;
 
 
     private final Cache<String, AiCodeGeneratorService> caffeineBuilder = Caffeine.newBuilder()
@@ -78,7 +80,7 @@ public class AiCodeGeneratorServiceFactory {
                     chatModel(chatModel).
                     streamingChatModel(reasoningStreamingChatModel)
                     .chatMemoryProvider(memoryId -> chatMemory)
-                    .tools(new FileWriteTool())
+                    .tools(toolManager.getAllTools())
                     .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from
                             (toolExecutionRequest, "Error: there is no tool" + toolExecutionRequest.name()))
                     .build();

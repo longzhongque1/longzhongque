@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import dayjs from 'dayjs'
@@ -9,11 +9,12 @@ import javascript from 'highlight.js/lib/languages/javascript'
 import css from 'highlight.js/lib/languages/css'
 import xml from 'highlight.js/lib/languages/xml'
 import 'highlight.js/styles/github.css'
-import { deployApp, getAppVoById } from '@/api/appController.ts'
+import { deployApp, downloadAppCode, getAppVoById } from '@/api/appController.ts'
 import { listAppChatHistoryVoByPage } from '@/api/chatHistoryController.ts'
 import { BASE_URL } from '@/request'
 import { useLoginUserStore } from '@/stores/loginUser'
 import AppDetailModal from '@/components/AppDetailModal.vue'
+import { useVisualEditor } from '@/pages/app/useVisualEditor'
 
 type ChatMessage = {
   id: string
@@ -30,6 +31,7 @@ const router = useRouter()
 const loginUserStore = useLoginUserStore()
 const appId = String(route.params.id ?? '')
 const loading = ref(false)
+const downloading = ref(false)
 const deploying = ref(false)
 const appInfo = ref<API.AppVO>()
 const userInput = ref('')
@@ -43,10 +45,26 @@ const historyCursor = ref<string>()
 const hasMoreHistory = ref(false)
 const deployedUrl = ref('')
 const previewUrl = ref('')
+const previewIframeRef = ref<HTMLIFrameElement | null>(null)
 const detailVisible = ref(false)
 const iframeCacheBuster = ref(0)
 const tempMessageSeed = ref(0)
 let eventSource: EventSource | null = null
+
+const {
+  isEditMode,
+  selectedElementInfo,
+  bindIframe,
+  toggleEditMode,
+  exitEditMode,
+  clearSelectedElement,
+  buildPromptWithSelectedElement,
+  syncMode,
+} = useVisualEditor()
+
+watch(previewIframeRef, (val) => {
+  bindIframe(val)
+})
 
 hljs.registerLanguage('javascript', javascript)
 hljs.registerLanguage('js', javascript)
@@ -74,6 +92,23 @@ const md: MarkdownIt = new MarkdownIt({
 const renderMarkdown = (content: string) => {
   return md.render(content)
 }
+
+const codeGenTypeText = computed(() => {
+  const type = String(appInfo.value?.codeGenType || '').toLowerCase()
+  if (!type) {
+    return '未知类型'
+  }
+  if (type === 'vue_project') {
+    return 'Vue项目'
+  }
+  if (type === 'html') {
+    return '原生html'
+  }
+  if (type === 'multi_file') {
+    return '原生多文件'
+  }
+  return String(appInfo.value?.codeGenType)
+})
 
 const scrollMessageListToBottom = async () => {
   await nextTick()
@@ -303,6 +338,7 @@ const sendMessage = async (input?: string) => {
   if (!content || loading.value) {
     return
   }
+  const messageToSend = buildPromptWithSelectedElement(content)
   loading.value = true
   generatedDone.value = false
   messageList.value.push({
@@ -317,11 +353,13 @@ const sendMessage = async (input?: string) => {
   }
   messageList.value.push(aiMessage)
   userInput.value = ''
+  clearSelectedElement()
+  exitEditMode()
   await scrollMessageListToBottom()
 
   closeStream()
 
-  const url = `${BASE_URL}/app/chat/gen/code?appId=${encodeURIComponent(appId)}&message=${encodeURIComponent(content)}`
+  const url = `${BASE_URL}/app/chat/gen/code?appId=${encodeURIComponent(appId)}&message=${encodeURIComponent(messageToSend)}`
   try {
     eventSource = new EventSource(url, { withCredentials: true })
 
@@ -383,6 +421,67 @@ const doDeploy = async () => {
   }
 }
 
+const parseDownloadFileName = (contentDisposition: string, fallback: string) => {
+  const utf8Name = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  if (utf8Name) {
+    try {
+      return decodeURIComponent(utf8Name)
+    } catch {
+      return utf8Name
+    }
+  }
+  const normalName = contentDisposition.match(/filename="?([^";]+)"?/i)?.[1]
+  return normalName || fallback
+}
+
+const doDownloadCode = async () => {
+  if (!appId) {
+    message.error('应用 id 无效')
+    return
+  }
+  downloading.value = true
+  try {
+    // @ts-ignore 保留 long 精度需要以 string 形式传入
+    const res = await downloadAppCode(
+      { appId: appId as unknown as number },
+      {
+        responseType: 'blob',
+      },
+    )
+    const contentDisposition = String(res.headers?.['content-disposition'] ?? '')
+    const contentType = String(res.headers?.['content-type'] ?? 'application/zip')
+    const fileName = parseDownloadFileName(contentDisposition, `${appId}.zip`)
+    const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: contentType })
+    if (!blob.size) {
+      throw new Error('下载文件为空')
+    }
+    if (contentType.includes('application/json') || contentType.includes('text/plain')) {
+      const text = await blob.text()
+      throw new Error(text || '后端返回了错误信息，请检查下载接口')
+    }
+    const objectUrl = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = objectUrl
+    link.download = fileName
+    link.rel = 'noopener'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    // 下载大文件时浏览器写盘可能耗时较久，避免过早 revoke 导致下载中断
+    window.setTimeout(() => {
+      window.URL.revokeObjectURL(objectUrl)
+    }, 10 * 60 * 1000)
+    message.success('已开始下载，请等待浏览器完成保存')
+  } catch (e: any) {
+    // XHR 下载失败时，回退为浏览器原生下载，直接走后端 Content-Disposition
+    const fallbackUrl = `${BASE_URL}/app/download/${encodeURIComponent(appId)}`
+    window.open(fallbackUrl, '_blank', 'noopener,noreferrer')
+    message.warning('下载切换为浏览器直连模式，请检查新窗口下载情况')
+  } finally {
+    downloading.value = false
+  }
+}
+
 const goHome = () => {
   router.push('/')
 }
@@ -402,6 +501,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  exitEditMode()
   closeStream()
 })
 </script>
@@ -409,10 +509,14 @@ onBeforeUnmount(() => {
 <template>
   <div id="appChatPage">
     <div class="top-bar">
-      <h2>{{ appInfo?.appName || '应用对话页' }}</h2>
+      <div class="title-area">
+        <h2>{{ appInfo?.appName || '应用对话页' }}</h2>
+        <a-tag color="blue">{{ codeGenTypeText }}</a-tag>
+      </div>
       <a-space>
         <a-button @click="goHome">返回主页</a-button>
         <a-button @click="detailVisible = true">应用详情</a-button>
+        <a-button :loading="downloading" @click="doDownloadCode">下载代码</a-button>
         <a-button type="primary" :loading="deploying" @click="doDeploy">部署</a-button>
         <a v-if="deployedUrl" :href="deployedUrl" target="_blank">访问部署地址</a>
       </a-space>
@@ -445,6 +549,16 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="input-box">
+          <a-alert
+            v-if="selectedElementInfo"
+            class="selected-element-alert"
+            type="info"
+            show-icon
+            closable
+            :message="`已选中元素：${selectedElementInfo.tagName}`"
+            :description="`选择器：${selectedElementInfo.selector || '-'}${selectedElementInfo.textPreview ? ` | 文本：${selectedElementInfo.textPreview}` : ''}`"
+            @close="clearSelectedElement"
+          />
           <a-tooltip :title="canChat ? '' : '无法在别人的作品下对话哦~'">
             <span class="textarea-wrapper">
               <a-textarea
@@ -456,12 +570,21 @@ onBeforeUnmount(() => {
             </span>
           </a-tooltip>
           <div class="send-action">
+            <a-button :type="isEditMode ? 'default' : 'dashed'" :disabled="!showPreview" @click="toggleEditMode">
+              {{ isEditMode ? '退出编辑模式' : '进入编辑模式' }}
+            </a-button>
             <a-button type="primary" :loading="loading" :disabled="!canChat" @click="sendMessage()">发送</a-button>
           </div>
         </div>
       </div>
       <div class="preview-panel">
-        <iframe v-if="showPreview" class="preview-frame" :src="previewUrl" />
+        <iframe
+          v-if="showPreview"
+          ref="previewIframeRef"
+          class="preview-frame"
+          :src="previewUrl"
+          @load="syncMode"
+        />
         <div v-else-if="shouldShowPreviewPlaceholder">
           <a-empty description="代码生成完成后，这里会展示网页效果" />
         </div>
@@ -496,6 +619,12 @@ onBeforeUnmount(() => {
 
 .top-bar h2 {
   margin: 0;
+}
+
+.title-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .content {
@@ -638,13 +767,19 @@ onBeforeUnmount(() => {
   padding-top: 12px;
 }
 
+.selected-element-alert {
+  margin-bottom: 8px;
+}
+
 .textarea-wrapper {
   display: block;
 }
 
 .send-action {
   margin-top: 8px;
-  text-align: right;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .preview-panel {
