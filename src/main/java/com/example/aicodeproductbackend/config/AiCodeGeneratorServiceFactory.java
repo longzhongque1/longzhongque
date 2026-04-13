@@ -28,7 +28,7 @@ import java.time.Duration;
 public class AiCodeGeneratorServiceFactory {
 
     private static final Logger log = LoggerFactory.getLogger(AiCodeGeneratorServiceFactory.class);
-    @Resource
+    @Resource(name = "openAiChatModel")
     private ChatModel chatModel;
     @Resource
     private RedisChatMemoryStore redisChatMemoryStore;
@@ -75,9 +75,9 @@ public class AiCodeGeneratorServiceFactory {
         chatHistoryService.loadChatHistoryToMemory(appId, chatMemory, 20);
         return switch (codeGenTypeEnum) {
             case VUE_PROJECT ->{
+                // 使用多例模式的 StreamingChatModel 解决并发问题
                 StreamingChatModel reasoningStreamingChatModel = SpringContextUtil.getBean("reasoningStreamingChatModelPrototype", StreamingChatModel.class);
                  yield AiServices.builder(AiCodeGeneratorService.class).
-                    chatModel(chatModel).
                     streamingChatModel(reasoningStreamingChatModel)
                     .chatMemoryProvider(memoryId -> chatMemory)
                     .tools(toolManager.getAllTools())
