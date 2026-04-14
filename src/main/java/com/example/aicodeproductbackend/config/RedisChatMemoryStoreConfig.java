@@ -15,13 +15,15 @@ public class RedisChatMemoryStoreConfig {
 
     private int port;
 
+    private Long ttl;
+
 
     @Bean
     public RedisChatMemoryStore redisChatMemoryStore() {
         return RedisChatMemoryStore.builder()
                 .host(host)
                 .port(port)
-                .ttl(3600L)
+                .ttl(ttl)
                 .build();
     }
 }

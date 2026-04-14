@@ -8,6 +8,8 @@ import com.example.aicodeproductbackend.ai.model.message.AiResponseMessage;
 import com.example.aicodeproductbackend.ai.model.message.ToolExecutedMessage;
 import com.example.aicodeproductbackend.ai.model.message.ToolRequestMessage;
 import com.example.aicodeproductbackend.config.AiCodeGeneratorServiceFactory;
+import com.example.aicodeproductbackend.contant.AppConstant;
+import com.example.aicodeproductbackend.core.builder.VueProjectBuilder;
 import com.example.aicodeproductbackend.core.parser.CodeParserExecutor;
 import com.example.aicodeproductbackend.core.saver.CodeFileSaverExecutor;
 import com.example.aicodeproductbackend.exception.BusinessException;
@@ -31,6 +33,8 @@ public class AiCodeGeneratorFacade {
 
     @Resource
     private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
+    @Resource
+    private VueProjectBuilder vueProjectBuilder;
     /**
      * 统一入口：根据类型生成并保存代码
      *
@@ -83,7 +87,7 @@ public class AiCodeGeneratorFacade {
             }
             case VUE_PROJECT -> {
                 TokenStream vueProjectTokenStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId,userMessage);
-                yield processTokenStream(vueProjectTokenStream);
+                yield processTokenStream(vueProjectTokenStream,appId);
             }
             default -> {
                 String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();
@@ -200,7 +204,7 @@ public class AiCodeGeneratorFacade {
      * @param tokenStream
      * @return 提供转换流式对象响应
      */
-    private Flux<String> processTokenStream(TokenStream tokenStream) {
+    private Flux<String> processTokenStream(TokenStream tokenStream,Long appId) {
         return Flux.create(sink -> {
             tokenStream.onPartialResponse((String partialResponse )-> {
                 AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
@@ -212,7 +216,9 @@ public class AiCodeGeneratorFacade {
                 ToolExecutedMessage toolExecutedMessage = new ToolExecutedMessage(toolExecution);
                 sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
             }).onCompleteResponse((chatResponse -> {
-
+                //异步构造vue项目
+                String projectPath= AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
+                vueProjectBuilder.buildProject(projectPath);
                 sink.complete();
             })).onError(throwable -> {
                 throwable.printStackTrace();
