@@ -1,6 +1,7 @@
 package com.example.aicodeproductbackend.config;
 
 import com.example.aicodeproductbackend.ai.AiCodeGeneratorService;
+import com.example.aicodeproductbackend.ai.guardrail.PromptSafetyInputGuardrail;
 import com.example.aicodeproductbackend.ai.tools.*;
 import com.example.aicodeproductbackend.exception.BusinessException;
 import com.example.aicodeproductbackend.exception.ErrorCode;
@@ -81,6 +82,7 @@ public class AiCodeGeneratorServiceFactory {
                     streamingChatModel(reasoningStreamingChatModel)
                     .chatMemoryProvider(memoryId -> chatMemory)
                     .tools(toolManager.getAllTools())
+                    .inputGuardrails(new PromptSafetyInputGuardrail())   //添加护轨
                     .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from
                             (toolExecutionRequest, "Error: there is no tool" + toolExecutionRequest.name()))
                     .build();

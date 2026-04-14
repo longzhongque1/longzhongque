@@ -386,6 +386,35 @@ const sendMessage = async (input?: string) => {
       }
     }
 
+    // 监听 business-error 事件
+    eventSource.addEventListener('business-error', (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data.error && data.message) {
+          // 添加错误消息到对话列表
+          const errorMessage: ChatMessage = {
+            id: createTempMessageId('ai'),
+            role: 'ai',
+            content: `❌ 错误: ${data.message}${data.code ? ` (代码: ${data.code})` : ''}`,
+          }
+          messageList.value.push(errorMessage)
+          messageList.value = [...messageList.value]
+          scrollMessageListToBottom()
+        }
+      } catch (e) {
+        console.error('解析 business-error 事件数据失败:', e)
+      }
+    })
+
+    // 监听 done 事件
+    eventSource.addEventListener('done', (event) => {
+      loading.value = false
+      generatedDone.value = true
+      iframeCacheBuster.value = Date.now()
+      refreshPreviewUrl()
+      closeStream()
+    })
+
     eventSource.onerror = () => {
       loading.value = false
       generatedDone.value = true
